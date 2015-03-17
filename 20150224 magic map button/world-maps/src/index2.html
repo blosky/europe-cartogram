@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title></title>
+  <meta charset="utf-8">
+  <script src="../../js/d3.v3.min.js"></script>
+  <script src="../../js/d3.geo.projection.v0.min.js"></script>
+  <script src="../../js/topojson.v1.min.js"></script>
+  <script src="../../js/queue.v1.min.js"></script>
+  <script src="../../js/d3.geo.zoom.js"></script>
+  <style>
+  </style>
+</head>
+<body>
+
+<button id="zoom_in" class="zoomButton">+</button>
+<button id="zoom_out" class="zoomButton">-</button>
+<button id="spain">Spain</button>
+
+  <script>
+    var country_border_thickness = .3;
+    var country_border_color = "#FFF";
+    var country_fill = "#222";
+    var country_border_dasharray = (".05,.05")
+
+    var zoom = d3.geo.zoom().scaleExtent([1, 100])
+    // .on("zoomstart", function() {svg.datum(raw);})
+    // .on("zoom", zoomed)
+    // .on("zoomend", function() { svg.datum(country);})
+
+    var width = window.innerWidth,
+    height = window.innerHeight;
+
+    var projection = d3.geo.robinson()
+    .scale(150)
+    .center([0, 0])
+    .rotate([-50,0])
+    .translate([width / 2, height / 2])
+    .precision(.1);
+
+    var path = d3.geo.path()
+    .projection(projection);
+
+    var svg = d3.select("body").append("svg")
+    .attr("width", width)
+    .attr("height", height)
+    .call(zoom)
+    .append("g")
+    .attr("class", "map");
+
+    var country;
+    var border;
+    var raw;
+
+
+    queue()
+    .defer(d3.json, '../json/world_gm.topojson') // topojson polygons
+    .defer(d3.json, '../json/world_gm_raw.topojson') // topojson polygons
+    .defer(d3.json, '../json/gm_disputed_areas.topojson') // geojson points
+    .await(makeMap); // function that uses files
+
+
+    function makeMap(error, world, raw, disputed)
+    {
+      country = topojson.feature(world, world.objects.world_gm).features;
+      drawCountry(country);
+
+      raw = topojson.feature(world, raw.objects.world_gm).features;
+
+      border = topojson.feature(disputed, disputed.objects.gm_disputed_areas).features;
+      drawBorder(border);
+    };
+
+    function drawCountry(country)
+    {
+      svg.selectAll(".country")
+      .data(country)
+      .enter()
+      .insert("path", ".map")
+      .attr("class", function(d){return "country " + d.properties.iso_a3})
+      .attr("d", path)
+     // .on("click", spainClicked)
+      .style("fill", country_fill)
+      .style("stroke", country_border_color)
+      .style("stroke-width", country_border_thickness);
+    }
+
+    function drawBorder(border)
+    {
+      svg.selectAll(".border")
+      .data(border)
+      .enter()
+      .insert("path", ".map")
+      .attr("d", path)
+      .style("stroke", country_fill)
+      .style("fill", "none")
+      .style("stroke-width", country_border_thickness);
+
+      svg.selectAll(".border")
+      .data(border)
+      .enter()
+      .insert("path", ".map")
+      .attr("class", function(d){return "border " + d.properties.SU_A3})
+      .attr("d", path)
+      .style("stroke", country_border_color)
+      .style("fill", "none")
+      .style("stroke-width", country_border_thickness)
+      .style("stroke-dasharray", country_border_dasharray);
+    }
+
+
+    function zoomed()
+    {
+        svg.attr("transform",
+            "translate(" + zoom.translate() + ")" +
+            "scale(" + zoom.scale() + ")"
+        );
+
+        console.log(zoom.scale())
+
+        //projection.rotate([-10 / zoom.scale(),0])
+
+        /*svg.selectAll(".country")
+        .attr("d", path)*/
+
+        d3.selectAll(".country").style("stroke-width", country_border_thickness / zoom.scale());
+        d3.selectAll(".border").style("stroke-width", country_border_thickness / zoom.scale());
+    }
+
+    function interpolateZoom (translate, scale)
+    {
+
+      return d3.transition().duration(350).tween("zoom", function () {
+
+          var iTranslate = d3.interpolate(zoom.translate(), translate);
+          var iScale = d3.interpolate(zoom.scale(), scale);
+
+          return function (t) {
+
+            console.log(t, iScale(t));
+              zoom
+                  .scale(iScale(t))
+                  .translate(iTranslate(t));
+              zoomed();
+          };
+        });
+    }
+
+    function zoomClick()
+    {
+      var direction = 1;
+      var factor = 0.8;
+      var target_zoom = 1;
+      var center = [width / 2, height / 2];
+      var extent = zoom.scaleExtent();
+      var translate = zoom.translate();
+      var translate0 = [];
+      var l = [];
+      var view = {x: translate[0], y: translate[1], k: zoom.scale()};
+
+      d3.event.preventDefault();
+      direction = (this.id === 'zoom_in') ? 1 : -1;
+      target_zoom = zoom.scale() * (1 + factor * direction);
+
+      if (target_zoom < extent[0]-0.9 || target_zoom > extent[1]) { console.log(target_zoom < extent[0], target_zoom, extent[0],direction);return false; }
+
+      translate0 = [(center[0] - view.x) / view.k, (center[1] - view.y) / view.k];
+      view.k = target_zoom;
+      l = [translate0[0] * view.k + view.x, translate0[1] * view.k + view.y];
+
+      view.x += center[0] - l[0];
+      view.y += center[1] - l[1];
+
+      interpolateZoom([view.x, view.y], view.k);
+      //console.log(projection.invert([view.x/view.k,view.y/view.k]))
+    }
+
+
+    function spainClicked(d)
+    {
+      console.log(d3.map(country))
+      var country;
+
+      country.forEach(function(d) {
+        if(d.properties.iso_a3 == "CHN")country = d;
+      }
+      )
+
+
+     /* var spain = d3.select(".ESP")
+      console.log(path.bounds(spain))*/
+      var bounds = path.bounds(country),
+      dx = bounds[1][0] - bounds[0][0],
+      dy = bounds[1][1] - bounds[0][1],
+      x = (bounds[0][0] + bounds[1][0]) / 2,
+      y = (bounds[0][1] + bounds[1][1]) / 2,
+      scale = .9 / Math.max(dx / width, dy / height),
+      translate = [width / 2 - scale * x, height / 2 - scale * y];
+
+      svg.transition()
+          .duration(750)
+          .attr("transform", "translate(" + translate + ")scale(" + scale + ")");
+
+      d3.selectAll(".country").style("stroke-width", country_border_thickness / zoom.scale());
+      d3.selectAll(".border").style("stroke-width", country_border_thickness / zoom.scale());
+    }
+
+
+    d3.selectAll('.zoomButton').on('click', zoomClick);
+    d3.select('#spain').on('click', spainClicked);
+
+
+  </script>
+</body>
+</html>

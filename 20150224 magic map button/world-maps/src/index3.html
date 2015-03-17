@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>index3</title>
+  <meta charset="utf-8">
+  <script src="../../js/d3.v3.min.js"></script>
+  <script src="../../js/d3.geo.projection.v0.min.js"></script>
+  <script src="../../js/topojson.v1.min.js"></script>
+  <script src="../../js/queue.v1.min.js"></script>
+  <script src="../../js/d3.geo.zoom.js"></script>
+
+
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.3/jquery.min.js"></script>
+
+  <script src="//code.jquery.com/jquery-1.10.2.js"></script>
+  <script src="//code.jquery.com/ui/1.11.3/jquery-ui.js"></script>
+
+  <style type="text/css">
+
+    body
+    {
+      background: white;
+    }
+
+    svg
+    {
+      cursor: move;
+    }
+
+    .ui-menu
+    {
+      list-style-type: none;
+      width: 210px;
+    }
+
+    .ui-menu li
+    {
+      border-bottom: 1px solid #DFDFDF;
+      padding: 3px 8px;
+      font-size: 14px;
+      cursor: pointer;
+      color: #000;
+      background: white;
+    }
+
+    .ui-autocomplete
+    {
+      padding: 0;
+    }
+
+    ul .ui-state-focus
+    {
+      background: black;
+      color: white;
+    }
+
+    .ui-menu li a {
+      display: block;
+      border: medium none;
+    }
+
+    .country
+    {
+      fill:#D9D9D9;
+      stroke:#647882;
+      stroke-widht:1px;
+    }
+
+    .border
+    {
+      stroke:#647882;
+      stroke-width:1px;
+      fill:none;
+      stroke-dasharray:3,3; 
+    }
+
+    .borderbg
+    {
+      stroke:white;
+      stroke-width:1px;
+      fill:none;
+    }
+
+    .selected
+    {
+      fill:white;
+    }
+
+  </style>  
+
+</head>
+<body>
+  <button id="zoom_in" class="zoomButton">+</button>
+  <button id="zoom_out" class="zoomButton">-</button>
+  <button id="reset">Reset</button>
+
+  <select id="projections_menu"></select>
+
+  <div class="ui-widget">
+    <label for="tags"></label>
+    <input id="tags"/>
+  </div>
+
+  <div id="map"></div>
+
+  <script>
+    var width = window.innerWidth;
+    var height = window.innerHeight;
+    var initScale = 220;
+    var availableTags = [];
+    var projections =
+    [
+    {name:"Robinson", projection: d3.geo.robinson()},
+    {name:"Mercator", projection: d3.geo.mercator()}
+    ]
+
+    var menu;
+    var reset;
+    var zoom_in;
+    var zoom_out;
+    var ratio = window.devicePixelRatio || 1;
+
+    var country_border_thickness = .3;
+    var landColor = '#D9D9D9';
+
+    var p = [0,0];
+    var r = [0,0];
+    var countries;
+    var borders;
+    var bordersbg;
+
+    var projection = d3.geo.robinson()
+    .rotate([0, 0])
+    .translate([width / 2, height / 2])
+    .scale(initScale)
+    .clipExtent([[-ratio, -ratio], [width + ratio, height + ratio]]);
+
+    var path = d3.geo.path()
+    .projection(projection);
+
+    var zoom = d3.geo.zoom()
+    .projection(projection)
+    .scaleExtent([initScale, Infinity])
+    .on("zoomstart", function() {
+      countries.data(worldLow);
+    })
+    .on("zoom", function() {
+      countries.attr("d", path);
+      borders.attr("d", path);
+      bordersbg.attr("d", path);
+    })
+    .on("zoomend", function() {
+      countries.data(worldHigh);
+      countries.attr("d", path);
+      borders.attr("d", path);
+      bordersbg.attr("d", path);
+    });
+
+    var svg = d3.select("#map").append("svg")
+    .attr("width", width)
+    .attr("height", height)
+    .call(zoom);
+
+    var worldHigh;
+    var worldLow;
+    var border;
+    var world = svg.append("g").attr("class", "world");
+
+    queue()
+    .defer(d3.json, "../json/gm_world_raw.topojson")
+    .defer(d3.json, "../json/gm_world.topojson")
+    .defer(d3.json, '../json/gm_disputed_areas.topojson') // geojson points
+    .await(function(error, low, high, disputed) {
+
+      worldLow = topojson.feature(low, low.objects.gm_world).features;
+      worldHigh = topojson.feature(high, high.objects.gm_world).features;
+      border = topojson.feature(disputed, disputed.objects.gm_disputed_areas).features;
+
+      world.selectAll(".country")
+      .data(worldHigh)
+      .enter()
+      .insert("path", ".world")
+      .attr("class", function(d){availableTags.push({label:d.properties.name, value:d.properties.adm0_a3});return "country " + d.properties.adm0_a3})
+      .attr("d", path)
+      .on("click",clicked);
+
+      countries = d3.selectAll(".country");
+
+      createInteractivity();
+
+      world.selectAll(".borderbg")
+      .data(border)
+      .enter()
+      .insert("path", ".world")
+      .attr("class", "borderbg")
+      .attr("d", path);
+
+      world.selectAll(".border")
+      .data(border)
+      .enter()
+      .insert("path", ".world")
+      .attr("class", "border")
+      .attr("d", path);
+
+      borders = d3.selectAll(".border");
+      bordersbg = d3.selectAll(".borderbg");
+    });
+
+function clicked(d)
+{
+  p = d3.geo.centroid(d);
+  r = [-p[0], -p[1]];
+  projection.rotate(r);
+  zoomBounds(projection, d)
+  
+  countries.attr("d", path);
+  borders.attr("d", path);
+  bordersbg.attr("d", path);
+
+  d3.select(".selected").classed("selected", false)
+  d3.select("." + d.properties.adm0_a3).classed("selected", true)
+}
+
+
+function onMenuChange()
+{
+  projection = projections[this.selectedIndex].projection;
+  projection.rotate(r);
+  projection.scale(zoom.scale())
+
+  path.projection(projection);
+  zoom.projection(projection);
+
+  projection.translate([width / 2, height / 2]);
+
+  countries.attr("d", path);
+  borders.attr("d", path);
+  bordersbg.attr("d", path);
+}
+
+function onResetClicked()
+{
+  r= [0,0];
+  zoom.scale(initScale);
+  projection.rotate([0, 0]);
+  projection.translate([width / 2, height / 2]);
+  projection.scale(initScale);
+  countries.attr("d", path);
+  borders.attr("d", path);
+  bordersbg.attr("d", path);
+}
+
+function onZoomInClicked()
+{
+
+}
+
+function onZoomOutClicked()
+{
+
+}
+
+function onTagSelected(event,ui)
+{
+  var country = d3.select(".country ." + ui.item.value);
+
+  worldHigh.forEach(function(d){if(d.properties.adm0_a3 == ui.item.value)clicked(d); return})
+}
+
+function createInteractivity()
+{
+
+  $( "#tags" ).autocomplete({
+    source: availableTags,
+    focus: function( event, ui ) {
+      $( "#tags" ).val( ui.item.label );
+      return false;
+    },
+    select:function(event, ui ){onTagSelected(event, ui ); return false}
+  });
+  
+  menu = d3.select("#projections_menu")
+  .on("change",onMenuChange);
+
+  menu.selectAll("option")
+  .data(projections)
+  .enter().append("option")
+  .text(function(d) { return d.name; });
+
+  reset = d3.select("#reset")
+  .on("click", onResetClicked);
+
+  zoom_in = d3.select("#zoom_in")
+  .on("click", onZoomInClicked);
+
+  zoom_out = d3.select("#zoom_out")
+  .on("click", onZoomOutClicked)
+}
+
+function zoomBounds(projection, o) {
+  var centroid = d3.geo.centroid(o),
+  clip = projection.clipExtent();
+
+  projection
+  .clipExtent(null)
+  .scale(1)
+  .translate([0, 0]);
+
+  var b = path.bounds(o),
+  k = Math.min(Infinity, .45 / Math.max(Math.max(Math.abs(b[1][0]), Math.abs(b[0][0])) / width, Math.max(Math.abs(b[1][1]), Math.abs(b[0][1])) / height));
+
+  projection
+  .clipExtent(clip)
+  .scale(k)
+  .translate([width / 2, height / 2]);
+
+  zoom.scale(k);
+}
+
+</script>
+</body>
+</html>
